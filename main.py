@@ -4,25 +4,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 import socket
 from datetime import datetime
-import threading
 import json
-
-DB_PATH = './storage/data.json'
-
-def save_to_db(message):
-    pathlib.Path('./storage').mkdir(parents=True, exist_ok=True)
-    try:
-        with open(DB_PATH, 'r') as db_file:
-            data = json.load(db_file)
-            if not isinstance(data, list):
-                data = []
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = []
-
-    data.append(message)
-
-    with open(DB_PATH, 'w') as db_file:
-        json.dump(data, db_file, indent=4)
+from multiprocessing import Process
+from pymongo import MongoClient
 
 
 class HttpHandler(BaseHTTPRequestHandler):
@@ -73,6 +57,10 @@ class HttpHandler(BaseHTTPRequestHandler):
             self.wfile.write(file.read())
 
 def socket_server(host, port):
+    client = MongoClient('mongodb://mongodb:27017/')
+    db = client["messages_db"]
+    collection = db["messages"]
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((host, port))
@@ -85,15 +73,15 @@ def socket_server(host, port):
                 if data:
                     message = json.loads(data.decode())
                     message['date'] = datetime.now().isoformat()
-                    save_to_db(message)
+                    collection.insert_one(message)
                     print(f"Saved message: {message}")
 
 if __name__ == '__main__':
-    http_thread = threading.Thread(target=lambda: HTTPServer(('', 3000), HttpHandler).serve_forever())
-    socket_thread = threading.Thread(target=socket_server, args=('127.0.0.1', 5000))
+    http_process = Process(target=lambda: HTTPServer(('', 3000), HttpHandler).serve_forever())
+    socket_process = Process(target=socket_server, args=('127.0.0.1', 5000))
 
-    http_thread.start()
-    socket_thread.start()
+    http_process.start()
+    socket_process.start()
 
-    http_thread.join()
-    socket_thread.join()
+    http_process.join()
+    socket_process.join()
